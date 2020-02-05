@@ -14,6 +14,7 @@ dependencies:
 - python-dateutil
 - ipywidgets
 - nodejs
+- tqdm
 - jupyter
 - jupyterlab
 - nb_conda
