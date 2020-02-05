@@ -1,8 +1,8 @@
 import logging
+import os.path
 import pathlib
 import sys
 
-import numpy as np
 from franklab_nwb_extensions import fl_extension  # noqa
 from pynwb import NWBHDF5IO
 from tqdm import tqdm
@@ -10,7 +10,7 @@ from tqdm import tqdm
 import datajoint as dj
 from pipeline import experiment
 
-IGNORED_LFP_FIELDS = ['electrodes', 'data']
+IGNORED_LFP_FIELDS = ['electrodes', 'data', 'timestamps']
 
 
 def run_ingest(nwb_dir):
@@ -35,11 +35,13 @@ def run_ingest(nwb_dir):
             experiment.Subject.insert1(subj, skip_duplicates=True)
 
             # Session Info
+            nwb_filename = os.path.basename(absolute_path)
             experiment.Session.insert1(
                 (nwbfile.subject.subject_id,
                  nwbfile.session_id,
                  nwbfile.experimenter,
-                 nwbfile.experiment_description), skip_duplicates=True)
+                 nwbfile.experiment_description,
+                 nwb_filename), skip_duplicates=True)
 
             # Probe Info
             probe_insertions = [
@@ -58,33 +60,14 @@ def run_ingest(nwb_dir):
             lfp_entry = {
                 f'lfp_{key_name}': value for key_name, value in lfp_dict.items()
                 if key_name not in IGNORED_LFP_FIELDS}
-            lfp_entry['lfp_timestamps'] = np.array(lfp_entry['lfp_timestamps'])
+            lfp_entry['lfp_oid'] = (
+                nwbfile.acquisition['LFP']['electrical_series'].object_id)
 
             for probe_insertion in tqdm(
                     experiment.ProbeInsertion.fetch('KEY'), desc='LFP Info'):
                 experiment.LFP.insert1(dict(**lfp_entry, **probe_insertion),
                                        allow_direct_insert=True,
                                        skip_duplicates=True)
-
-            # LFP data
-            lfp_data = np.array(lfp_dict['data'])
-            lfp_electrode_table = (
-                nwbfile.acquisition['LFP']['electrical_series']
-                .fields['electrodes'])
-            for lfp_ind, row in enumerate(lfp_electrode_table):
-                insertion_number = int(row["group_name"].values[0])
-                electrode_id = int(row.index.values[0])
-
-                lfp = (experiment.LFP &
-                       f'session_id="{nwbfile.session_id}"' &
-                       f'insertion_number={insertion_number}'
-                       ).fetch1('KEY')
-                lfp_channel = dict(**lfp,
-                                   electrode_id=electrode_id,
-                                   lfp=lfp_data[:, lfp_ind])
-                experiment.LFP.Channel.insert1(
-                    lfp_channel, allow_direct_insert=True,
-                    skip_duplicates=True)
 
 
 if __name__ == "__main__":

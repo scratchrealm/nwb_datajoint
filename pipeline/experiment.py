@@ -38,7 +38,8 @@ class Session(dj.Manual):
     session_id      : varchar(16)
     ---
     -> Experimenter
-    experiment_description:   varchar(255)
+    experiment_description   :   varchar(255)
+    nwb_filename             :   varchar(255)
     """
 
 
@@ -121,7 +122,7 @@ class LFP(dj.Imported):
     -> Session
     -> ProbeInsertion
     ---
-    lfp_timestamps          : blob@lfp_store
+    lfp_oid                 : varchar(255) # object_id
     lfp_timestamps_unit     : varchar(16)
     lfp_unit                : varchar(16)
     lfp_resolution          : float
@@ -130,11 +131,3 @@ class LFP(dj.Imported):
     lfp_description         : varchar(255)
     lfp_comments            : varchar(255)
     """
-
-    class Channel(dj.Part):
-        definition = """
-        -> master
-        electrode_id:   int   # should be -> ElectrodeConfig.Electrode
-        ---
-        lfp: blob@lfp_store           # recorded lfp at this electrode
-        """
