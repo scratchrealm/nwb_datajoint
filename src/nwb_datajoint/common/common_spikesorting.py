@@ -1,5 +1,6 @@
 from typing import Dict
 import datajoint as dj
+from numpy.core.fromnumeric import nonzero
 
 from .common_device import Probe
 from .common_interval import IntervalList, SortInterval, interval_list_intersect, interval_list_excludes_ind
@@ -26,6 +27,7 @@ import labbox_ephys as le
 import labbox_ephys_widgets_jp as lew
 
 from itertools import compress
+import tempfile
 
 from mountainsort4._mdaio_impl import readmda
 class Timer:
@@ -165,15 +167,14 @@ class SortGroup(dj.Manual):
                                              'sort_group_id', 'sort_reference_electrode_id'),
                                              replace="True")
 
-    def write_prb(self, sort_group_id, nwb_file_name, prb_file_name):
+    def get_geometry(self, sort_group_id, nwb_file_name):
         """
-        Writes a prb file containing informaiton on the specified sort group and
-        its geometry for use with the SpikeInterface package. See the
-        SpikeInterface documentation for details on prb file format.
+        Returns a list with the x,y coordinates of the electrodes in the sort group
+        for use with the SpikeInterface package. Converts z locations to y where appropriate
         :param sort_group_id: the id of the sort group
         :param nwb_file_name: the name of the nwb file for the session you wish to use
         :param prb_file_name: the name of the output prb file
-        :return: None
+        :return: geometry: list of coordinate pairs, one per electrode
         """
         # try to open the output file
         try:
@@ -197,33 +198,34 @@ class SortGroup(dj.Manual):
                                         'electrode_group_name' : electrode_group_name}).fetch1('probe_type')
         channel_group[sort_group_id] = dict()
         channel_group[sort_group_id]['channels'] = sort_group_electrodes['electrode_id'].tolist()
-        geometry = list()
+        
         label = list()
-        for electrode_id in channel_group[sort_group_id]['channels']:
+        n_chan = len(channel_group[sort_group_id]['channels'])
+        
+        geometry = np.zeros((nchan,2), dtype='float')
+        tmp_geom = np.array((nchan,3), dtype='float')
+        for i, electrode_id in enumerate(channel_group[sort_group_id]['channels']):
             # get the relative x and y locations of this channel from the probe table
             probe_electrode = int(electrodes['probe_electrode'][electrodes['electrode_id'] == electrode_id])
-            rel_x, rel_y = (Probe().Electrode() & {'probe_type': probe_type,
-                                                    'probe_electrode' : probe_electrode}).fetch('rel_x','rel_y')
+            rel_x, rel_y, rel_z = (Probe().Electrode() & {'probe_type': probe_type,
+                                                    'probe_electrode' : probe_electrode}).fetch('rel_x','rel_y', 'rel_z')
+            #TODO: Fix this HACK when we can use probeinterface:
             rel_x = float(rel_x)
             rel_y = float(rel_y)
-            geometry.append([rel_x, rel_y])
-            label.append(str(electrode_id))
-        channel_group[sort_group_id]['geometry'] = geometry
-        channel_group[sort_group_id]['label'] = label
-        # write the prf file in their odd format. Note that we only have one group, but the code below works for multiple groups
-        prbf.write('channel_groups = {\n')
-        for group in channel_group.keys():
-            prbf.write(f'    {int(group)}:\n')
-            prbf.write('        {\n')
-            for field in channel_group[group]:
-                prbf.write("          '{}': ".format(field))
-                prbf.write(json.dumps(channel_group[group][field]) + ',\n')
-            if int(group) != max_group:
-                prbf.write('        },\n')
-            else:
-                prbf.write('        }\n')
-        prbf.write('    }\n')
-        prbf.close()
+            rel_z = float(rel_z)
+            tmp_geom[i,:] = [rel_x, rel_y, rel_z]
+
+        #figure out which columns have coordinates
+        n_found = 0
+        for i in range(3):
+            if sum(np.nonzero(tmp_geom[:,i]):
+                if n_found < 2:
+                    geometry[:,n_found] = tmp_geom[:,i]
+                    n_found+=1
+                else:
+                    Warning(f'Relative electrode locations have three coordinates; only two are currenlty supported')
+        return np.ndarray.list(geometry)
+
 
 @schema
 class SpikeSorter(dj.Manual):
@@ -565,9 +567,8 @@ class SpikeSorting(dj.Computed):
         print('\nComputing quality metrics...')
         with Timer(label='compute metrics', verbose=True):
             #save recording to temporary file
-            import tempfile
             tmpfile = tempfile.NamedTemporaryFile(dir='/stelmo/nwb/tmp')
-            metrics_recording = se.CacheRecordingExtractor(recording, save_path=tmpfile)
+            metrics_recording = se.CacheRecordingExtractor(recording, save_path=tmpfile.name)
             metrics_key = (SpikeSortingParameters & key).fetch1('cluster_metrics_list_name')     
             metrics = SpikeSortingMetrics().compute_metrics(metrics_key, metrics_recording, sorting)
         
@@ -741,17 +742,27 @@ class SpikeSorting(dj.Computed):
                                                     chunk_size=filter_params['filter_chunk_size'],
                                                     dtype='float32', )
 
+            # add in the electrode locations
+            # create a temporary file for the probe with a .prb extension and write out the channel locations in the prb file
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                prb_file_name = os.path.join(tmp_dir, 'sortgroup.prb')
+                SortGroup().write_prb(key['sort_group_id'], key['nwb_file_name'], prb_file_name)
+                # add the probe geometry to the raw_data recording
+                sub_R.load_probe_file(prb_file_name)
+                print(f'sort_group geometry {sub_R.get_channel_locations()}')
+
             # If tetrode and location for every channel is (0,0), give new locations
             # TODO: remove this once the tetrodes are given positions
-            channel_locations = sub_R.get_channel_locations()
-            if np.all(channel_locations==0) and len(channel_locations)==4 and probe_type[:7]=='tetrode':
-                print('Tetrode; making up channel locations...')
-                channel_locations = [[0,0],[0,1],[1,0],[1,1]]
-                sub_R.set_channel_locations(channel_locations)
+            # channel_locations = sub_R.get_channel_locations()
+            # if np.all(channel_locations==0) and len(channel_locations)==4 and probe_type[:7]=='tetrode':
+            #     print('Tetrode; making up channel locations...')
+            #     channel_locations = [[0,0],[0,1],[1,0],[1,1]]
+            #     sub_R.set_channel_locations(channel_locations)
 
             # give timestamps for the SubRecordingExtractor
             # TODO: change this once spikeextractors is updated
             sub_R._timestamps = timestamps[sort_indices[0]:sort_indices[1]]
+        
 
         return sub_R
 
