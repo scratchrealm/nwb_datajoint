@@ -527,28 +527,33 @@ class SpikeSorting(dj.Computed):
                            + '_' + key['sort_interval_name'] \
                            + '_' + str(key['sort_group_id']) \
                            + '_' + key['sorter_name'] \
-                           + '_' + key['parameter_set_name'] + '.nwb'
+                           + '_' + key['parameter_set_name']
         analysis_path = str(Path(os.environ['SPIKE_SORTING_STORAGE_DIR'])
                             / key['analysis_file_name'])
         
         if not os.path.isdir(analysis_path):
             os.mkdir(analysis_path)
-        extractor_nwb_path = str(Path(analysis_path) / extractor_file_name)
+        recording_extractor_h5_path = str(Path(analysis_path) / extractor_file_name) + '_recording.h5'
+        sorting_extractor_h5_path = str(Path(analysis_path) / extractor_file_name) + '_sorting.h5'
 
         metadata = {}
         metadata['Ecephys'] = {'ElectricalSeries': {'name': 'ElectricalSeries',
                                                     'description': key['nwb_file_name'] + \
                                                                    '_' + key['sort_interval_name'] + \
                                                                    '_' + str(key['sort_group_id'])}}
-        with Timer(label=f'writing filtered NWB recording extractor to {extractor_nwb_path}', verbose=True):
+        with Timer(label=f'writing filtered NWB recording extractor to {recording_extractor_h5_path}', verbose=True):
             # TODO: save timestamps together
             #Caching the extractor GREATLY speeds up the subsequent processing and NWB writing
             tmpfile = tempfile.NamedTemporaryFile(dir='/stelmo/nwb/tmp')
-            recording = se.CacheRecordingExtractor(recording, save_path=tmpfile.name, chunk_mb=1000, n_jobs=4) 
+            recording = se.CacheRecordingExtractor(recording, save_path=tmpfile.name, chunk_mb=1000, n_jobs=4)
+            #write to h5 recording extractor
+            le.extractors.H5RecordingExtractorV1.write_recording(recording, recording_extractor_h5_path)
+
+
             #TODO: consider writing NWB or other recording extractor in a separate process
-            se.NwbRecordingExtractor.write_recording(recording, save_path=extractor_nwb_path,
-                                                    buffer_mb=10000, overwrite=True, metadata=metadata,
-                                                    es_key='ElectricalSeries')
+            # se.NwbRecordingExtractor.write_recording(recording, save_path=extractor_nwb_path,
+            #                                         buffer_mb=10000, overwrite=True, metadata=metadata,
+            #                                         es_key='ElectricalSeries')
 
         # whiten the extractor for sorting and metric calculations
         print('\nWhitening recording...')
@@ -557,6 +562,8 @@ class SpikeSorting(dj.Computed):
                                                     'parameter_set_name': key['parameter_set_name']}).fetch1('filter_parameter_dict')
             recording = st.preprocessing.whiten(recording, seed=0, chunk_size=filter_params['filter_chunk_size'])
 
+        # tmpfile = tempfile.NamedTemporaryFile(dir='/stelmo/nwb/tmp')
+        # recording = se.CacheRecordingExtractor(recording, save_path=tmpfile.name, chunk_mb=10000)
         print(f'\nRunning spike sorting on {key}...')
         sort_parameters = (SpikeSorterParameters & {'sorter_name': key['sorter_name'],
                                                     'parameter_set_name': key['parameter_set_name']}).fetch1()
@@ -567,12 +574,12 @@ class SpikeSorting(dj.Computed):
 
         key['time_of_sort'] = int(time.time())
         
-        # TODO: save timestamps
-        se.NwbSortingExtractor.write_sorting(sorting, save_path=extractor_nwb_path)
+ 
+        #le.extractors.H5SortingExtractorV1.write_sorting(sorting,sorting_extractor_h5_path)
+        #se.NwbSortingExtractor.write_sorting(sorting, save_path=extractor_nwb_path)
 
         with Timer(label='computing quality metrics', verbose=True):
-            # tmpfile = tempfile.NamedTemporaryFile(dir='/stelmo/nwb/tmp')
-            # metrics_recording = se.CacheRecordingExtractor(recording, save_path=tmpfile.name, chunk_mb=10000)
+
             metrics_key = (SpikeSortingParameters & key).fetch1('cluster_metrics_list_name')    
             metric_info = (SpikeSortingMetrics & {'cluster_metrics_list_name': metrics_key }).fetch1()
             print(metric_info) 
@@ -599,8 +606,8 @@ class SpikeSorting(dj.Computed):
         key['units_object_id'] = units_object_id
 
         print('\nGenerating feed for curation...')
-        extractor_nwb_uri = kp.link_file(extractor_nwb_path)
-        print(f'kachery URI for symbolic link to extractor NWB file: {extractor_nwb_uri}')
+        recording_extractor_h5_uri = kp.link_file(recording_extractor_h5_path)
+        #sorting_extractor_h5_uri = kp.link_file(sorting_extractor_h5_path)
         
         # create workspace
         workspace_uri = kp.get(key['analysis_file_name'])
@@ -614,18 +621,20 @@ class SpikeSorting(dj.Computed):
         sorting_label = key['sorter_name']+'_'+key['parameter_set_name']
 
         recording_uri = kp.store_json({
-            'recording_format': 'nwb',
+            'recording_format': 'h5_v1',
             'data': {
-                'path': extractor_nwb_path,
+                'h5_uri': recording_extractor_h5_uri,
             }
         })
-        sorting_uri = kp.store_json({
-            'sorting_format': 'nwb',
-            'data': {
-                'path': extractor_nwb_path
-            }
-        })
-        labbox_sorting = le.LabboxEphysSortingExtractor(sorting_uri)
+        # sorting_uri = kp.store_json({
+        #     'sorting_format': 'h5_v1',
+        #     'data': {
+        #         'h5_path': sorting_extractor_h5_path,
+        #     }
+        # })
+               # TODO: save timestamps
+        le_sorting = le.LabboxEphysSortingExtractor.store_sorting(sorting)
+        labbox_sorting = le.LabboxEphysSortingExtractor(le_sorting)
         labbox_recording = le.LabboxEphysRecordingExtractor(recording_uri, download=True)
 
         R_id = workspace.add_recording(recording=labbox_recording, label=recording_label)
