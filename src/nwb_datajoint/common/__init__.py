@@ -9,7 +9,7 @@ from .common_spikesorting import (SortGroup, SpikeSorting, SpikeSorter, SpikeSor
                                   SpikeSortingWaveformParameters, SpikeSortingArtifactParameters,
                                   SpikeSortingParameters,SpikeSortingMetrics, CuratedSpikeSorting, 
                                   AutomaticCurationParameters, AutomaticCurationSpikeSortingParameters,
-                                  AutomaticCurationSpikeSorting)
+                                  AutomaticCurationSpikeSorting, UnitInclusionParameters)
 from .common_filter import FirFilter
 from .common_interval import (IntervalList, SortInterval, interval_list_contains,
                               interval_list_contains_ind, interval_list_excludes,
