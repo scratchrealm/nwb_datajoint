@@ -319,7 +319,7 @@ class SpikeSortingMetrics(dj.Manual):
                                 'template_mode': 'mean',                # Use 'mean' or 'median' to compute templates
                                 'max_channel_peak': 'both',             # direction of the maximum channel peak: 'both', 'neg', or 'pos' (default 'both')
                                 'max_spikes_per_unit_for_noise_overlap': 1000, # Maximum number of spikes to compute templates for noise overlap from (default 1000)
-                                'noise_overlap_num_features': 5,        # Number of features to use for PCA for noise overlap
+                                'noise_overlap_num_features': 10,        # Number of features to use for PCA for noise overlap
                                 'noise_overlap_num_knn' : 1,            # Number of nearest neighbors for noise overlap
                                 'drift_metrics_interval_s': 60,         # length of period in s for evaluating drift (default 60 s)
                                 'drift_metrics_min_spikes_per_interval': 10,    # Minimum number of spikes in an interval for evaluation of drift (default 10)
@@ -547,8 +547,8 @@ class SpikeSorting(dj.Computed):
             recording = se.CacheRecordingExtractor(recording, save_path=tmpfile.name, chunk_mb=1000, n_jobs=4) 
             #TODO: consider writing NWB or other recording extractor in a separate process
             se.NwbRecordingExtractor.write_recording(recording, save_path=extractor_nwb_path,
-                                                    buffer_mb=10000, overwrite=True, metadata=metadata,
-                                                    es_key='ElectricalSeries')
+                                                   buffer_mb=10000, overwrite=True, metadata=metadata,
+                                                   es_key='ElectricalSeries')
 
         # whiten the extractor for sorting and metric calculations
         print('\nWhitening recording...')
@@ -588,6 +588,8 @@ class SpikeSorting(dj.Computed):
             units[unit_id] = recording_timestamps[spike_times_in_samples]
             units_valid_times[unit_id] = sort_interval_valid_times
             units_sort_interval[unit_id] = [sort_interval]
+            print(f'unit {unit_id}: {len(spike_times_in_samples)} spikes, {len(units[unit_id])}')
+
 
         # TODO: consider replacing with spikeinterface call if possible
         units_object_id, _ = AnalysisNwbfile().add_units(key['analysis_file_name'],
@@ -900,7 +902,6 @@ class AutomaticCurationSpikeSorting(dj.Computed):
     automatic_curation_results_dict=NULL: BLOB       #dictionary of outputs from automatic curation
     """
     def make(self, key):
-        print(key)
         #TODO: add burst parent detection and noise waveform detection
         key['automatic_curation_results_dict'] = dict()
         self.insert1(key)
@@ -1059,12 +1060,14 @@ class UnitInclusionParameters(dj.Manual):
     unit_inclusion_param_name: varchar(80) # the name of the list of thresholds for unit inclusion
     ---
     max_noise_overlap=1:        float   # noise overlap threshold (include below) 
-    min_nn_hit_rate=-1:         float   # isolation score threshold (include above)
-    max_isi_violation=1:        float   # ISI violation threshold
+    min_nn_hit_rate=0:         float   # isolation score threshold (include above)
+    max_isi_violation=100:      float   # ISI violation threshold
     min_firing_rate=0:          float   # minimum firing rate threshold
-    max_firing_rate=100000      float   # maximum fring rate thershold
+    max_firing_rate=10000:     float   # maximum fring rate thershold
     min_num_spikes=0:           int     # minimum total number of spikes
     """
+    def insert_default_param(self):
+        self.insert1({'unit_inclusion_param_name' : 'all'})
     
     def get_included_units(self, curated_sorting_key, unit_inclusion_key):
         """given a reference to a set of curated sorting units and a specific unit inclusion parameter list, returns 
@@ -1075,9 +1078,12 @@ class UnitInclusionParameters(dj.Manual):
         :param unit_inclusion_key: key to a single unit inclusion parameter set
         :type unit_inclusion_key: dict
         """
-        return (CuratedSpikeSorting().Unit() & f'noise_overlap <= {key['max_noise_overlap']}' &
-                                               f'nn_hit_rate >= {key['min_nn_hit_rate']}' &
-                                               f'isi_violation <= {key['max_isi_violation']}' &
-                                               f'firing_rate >= {key['min_firing_rate']}' &
-                                               f'firing_rate <= {key['max_firing_rate']}' &
-                                               f'num_spikes >= {key['min_num_spikes']}'ß
+        # get the full set of unit inclusion values
+        unit_inclusion_key = (self & unit_inclusion_key).fetch1()
+        return (CuratedSpikeSorting().Unit() & curated_sorting_key &
+                                                f'noise_overlap <= {unit_inclusion_key["max_noise_overlap"]}' &
+                                                f'nn_hit_rate >= {unit_inclusion_key["min_nn_hit_rate"]}' &
+                                                f'isi_violation <= {unit_inclusion_key["max_isi_violation"]}' &
+                                                f'firing_rate >= {unit_inclusion_key["min_firing_rate"]}' &
+                                                f'firing_rate <= {unit_inclusion_key["max_firing_rate"]}' & 
+                                                f'num_spikes >= {unit_inclusion_key["min_num_spikes"]}').fetch()

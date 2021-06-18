@@ -1,6 +1,6 @@
 # Reorganize this into hierarchy
 # Note: users will have their own tables... permission system
-from .clusterless import MarkParameters, Mark
+from .clusterless import MarkParameters, UnitMarkParameters, UnitMarks
 # from ..common.common_device import DataAcquisitionDevice, CameraDevice, Probe
 # from ..common.common_ephys import ElectrodeGroup, Electrode, Raw, SampleCount
 # from ..common.common_ephys import LFPSelection, LFP, LFPBandSelection, LFPBand

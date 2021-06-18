@@ -318,6 +318,7 @@ class AnalysisNwbfile(dj.Manual):
             if len(units.keys()):
                 # Add spike times and valid time range for the sort
                 for id in units.keys():
+                    print(f'adding unit {id}, {len(units[id])} spikes')
                     nwbf.add_unit(spike_times=units[id], id=id,
                                   # waveform_mean = units_templates[id],
                                   obs_intervals=units_valid_times[id])
