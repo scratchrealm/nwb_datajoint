@@ -96,8 +96,14 @@ class UnitMarks(dj.Computed):
             marks = marks[sort_order,:]
 
             if 'threshold' in mark_param_dict:
+                print('thresholding')
                 # filter the marks by the amplitude threshold
-                include = np.where(np.amax(marks, axis=1) >= mark_param_dict['sign']*mark_param_dict['threshold'])[0]
+                if mark_param_dict['sign'] == -1:
+                    include = np.where(np.amax(marks, axis=1) <= mark_param_dict['sign']*mark_param_dict['threshold'])[0]
+                elif mark_param_dict['sign'] == -1:
+                    include = np.where(np.amax(marks, axis=1) >= mark_param_dict['threshold'])[0]
+                else:
+                    include = np.where(np.abs(np.amax(marks, axis=1)) >= mark_param_dict['threshold'])[0]
                 timestamps = timestamps[include]
                 marks = marks[include,:]
 
