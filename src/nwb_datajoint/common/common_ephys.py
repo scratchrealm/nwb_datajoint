@@ -264,13 +264,15 @@ class LFPSelection(dj.Manual):
             LFPSelection().insert1({'nwb_file_name': nwb_file_name})
 
             # TO DO: do this in a better way
-            all_electrodes = Electrode.fetch(as_dict=True)
+            print(f'nwb_file_name {nswb_file_name}')
+            all_electrodes = (Electrode & {'nwb_file_name' : nwb_file_name}).fetch(as_dict=True)
             primary_key = Electrode.primary_key
             for e in all_electrodes:
                 # create a dictionary so we can insert new elects
                 if e['electrode_id'] in electrode_list:
                     lfpelectdict = {k: v for k,
                                     v in e.items() if k in primary_key}
+                    print(lfpelectdict)
                     LFPSelection().LFPElectrode.insert1(lfpelectdict, replace=True)
 
 
@@ -345,7 +347,6 @@ class LFP(dj.Imported):
 
     def fetch_nwb(self, *attrs, **kwargs):
         return fetch_nwb(self, (AnalysisNwbfile, 'analysis_file_abs_path'), *attrs, **kwargs)
-
 
 @schema
 class LFPBandSelection(dj.Manual):
