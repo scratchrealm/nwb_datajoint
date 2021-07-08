@@ -264,7 +264,6 @@ class LFPSelection(dj.Manual):
             LFPSelection().insert1({'nwb_file_name': nwb_file_name})
 
             # TO DO: do this in a better way
-            print(f'nwb_file_name {nswb_file_name}')
             all_electrodes = (Electrode & {'nwb_file_name' : nwb_file_name}).fetch(as_dict=True)
             primary_key = Electrode.primary_key
             for e in all_electrodes:
@@ -272,7 +271,6 @@ class LFPSelection(dj.Manual):
                 if e['electrode_id'] in electrode_list:
                     lfpelectdict = {k: v for k,
                                     v in e.items() if k in primary_key}
-                    print(lfpelectdict)
                     LFPSelection().LFPElectrode.insert1(lfpelectdict, replace=True)
 
 
