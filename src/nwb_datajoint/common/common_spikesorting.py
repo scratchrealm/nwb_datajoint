@@ -12,6 +12,7 @@ import numpy as np
 import pynwb
 import scipy.stats as stats
 import sortingview
+import labbox_ephys as le
 import spikeextractors as se
 import spikesorters as ss
 import spiketoolkit as st
@@ -570,33 +571,31 @@ class SpikeSorting(dj.Computed):
             recording = st.preprocessing.mask(recording, mask)
 
         # Path to files that will hold recording and sorting extractors
-        extractor_file_name = key['nwb_file_name'] \
+        extractor_base_file_name = key['nwb_file_name'] \
             + '_' + key['sort_interval_name'] \
             + '_' + str(key['sort_group_id']) \
             + '_' + key['sorter_name'] \
-            + '_' + key['parameter_set_name'] + '.nwb'
+            + '_' + key['parameter_set_name']
         analysis_path = str(Path(os.environ['SPIKE_SORTING_STORAGE_DIR'])
                             / key['analysis_file_name'])
 
         if not os.path.isdir(analysis_path):
             os.mkdir(analysis_path)
-        extractor_nwb_path = str(Path(analysis_path) / extractor_file_name)
-
+        extractor_path = str(Path(analysis_path) / extractor_base_file_name)
+        recording_extractor_h5_path = extractor_path + '_recording.h5'
         metadata = {}
         metadata['Ecephys'] = {'ElectricalSeries': {'name': 'ElectricalSeries',
                                                     'description': key['nwb_file_name'] +
                                                     '_' + key['sort_interval_name'] +
                                                     '_' + str(key['sort_group_id'])}}
-        with Timer(label=f'writing filtered NWB recording extractor to {extractor_nwb_path}', verbose=True):
+        with Timer(label=f'writing filtered NWB recording extractor to {recording_extractor_h5_path}', verbose=True):
             # TODO: save timestamps together
             # Caching the extractor GREATLY speeds up the subsequent processing and NWB writing
             tmpfile = tempfile.NamedTemporaryFile(dir='/stelmo/nwb/tmp')
             recording = se.CacheRecordingExtractor(
                 recording, save_path=tmpfile.name, chunk_mb=1000, n_jobs=4)
-            # TODO: consider writing NWB or other recording extractor in a separate process
-            se.NwbRecordingExtractor.write_recording(recording, save_path=extractor_nwb_path,
-                                                     buffer_mb=10000, overwrite=True, metadata=metadata,
-                                                     es_key='ElectricalSeries')
+            # write the extractor
+            le.extractors.H5RecordingExtractorV1.write_recording(recording, recording_extractor_h5_path)
 
         # whiten the extractor for sorting and metric calculations
         print('\nWhitening recording...')
@@ -616,10 +615,6 @@ class SpikeSorting(dj.Computed):
                                 **sort_parameters['parameter_dict'])
 
         key['time_of_sort'] = int(time.time())
-
-        # TODO: save timestamps
-        se.NwbSortingExtractor.write_sorting(
-            sorting, save_path=extractor_nwb_path)
 
         with Timer(label='computing quality metrics', verbose=True):
             # tmpfile = tempfile.NamedTemporaryFile(dir='/stelmo/nwb/tmp')
@@ -653,9 +648,9 @@ class SpikeSorting(dj.Computed):
         key['units_object_id'] = units_object_id
 
         print('\nGenerating feed for curation...')
-        extractor_nwb_uri = kc.link_file(extractor_nwb_path)
+        recording_extractor_h5_uri = kc.link_file(recording_extractor_h5_path)
         print(
-            f'kachery URI for symbolic link to extractor NWB file: {extractor_nwb_uri}')
+            f'kachery URI for symbolic link to extractor h5 file: {recording_extractor_h5_uri}')
 
         # create workspace
         workspace_name = key['analysis_file_name']
@@ -670,26 +665,20 @@ class SpikeSorting(dj.Computed):
             key['sort_interval_name'] + '_' + str(key['sort_group_id'])
         sorting_label = key['sorter_name'] + '_' + key['parameter_set_name']
         
-        # put kachery sha1 hash instead of path
-        recording_uri = kc.store_json({
-            'recording_format': 'nwb',
+        recording_uri = kp.store_json({
+            'recording_format': 'h5_v1',
             'data': {
-                'path': extractor_nwb_uri
+                'h5_uri': recording_extractor_h5_uri,
             }
         })
-        sorting_uri = kc.store_json({
-            'sorting_format': 'nwb',
-            'data': {
-                'path': extractor_nwb_uri
-            }
-        })
+        
+        le_sorting = sortingview.LabboxEphysSortingExtractor.store_sorting(sorting)
+        labbox_sorting = sortingview.LabboxEphysSortingExtractor(le_sorting)
+        labbox_recording = sortingview.LabboxEphysRecordingExtractor(recording_uri, download=True)
 
-        sorting = sortingview.LabboxEphysSortingExtractor(sorting_uri)
-        recording = sortingview.LabboxEphysRecordingExtractor(recording_uri, download=True)
-
-        R_id = workspace.add_recording(recording=recording, label=recording_label)
-        S_id = workspace.add_sorting(sorting=sorting, recording_id=R_id, label=sorting_label)
-
+        R_id = workspace.add_recording(recording=labbox_recording, label=recording_label)
+        S_id = workspace.add_sorting(sorting=labbox_sorting, recording_id=R_id, label=sorting_label)          
+       
         key['curation_feed_uri'] = workspace.uri
 
         # Set external metrics that will appear in the units table
@@ -1019,9 +1008,11 @@ class AutomaticCurationParameters(dj.Manual):
 @schema
 class AutomaticCurationSpikeSortingParameters(dj.Manual):
     definition = """
-    # Table for holding the output
+    # Table for holding the combination of the parameters and the sort
     -> AutomaticCurationParameters
     -> SpikeSorting
+    ---
+    -> SpikeSortingMetrics.proj(new_cluster_metrics_list_name='cluster_metrics_list_name')
     """
 
 
@@ -1038,6 +1029,7 @@ class AutomaticCurationSpikeSorting(dj.Computed):
         print(key)
         # TODO: add burst parent detection and noise waveform detection
         key['automatic_curation_results_dict'] = dict()
+
         self.insert1(key)
 
 
