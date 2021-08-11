@@ -12,7 +12,6 @@ import numpy as np
 import pynwb
 import scipy.stats as stats
 import sortingview
-import labbox_ephys as le
 import spikeextractors as se
 import spikesorters as ss
 import spiketoolkit as st
@@ -591,11 +590,11 @@ class SpikeSorting(dj.Computed):
         with Timer(label=f'writing filtered NWB recording extractor to {recording_extractor_h5_path}', verbose=True):
             # TODO: save timestamps together
             # Caching the extractor GREATLY speeds up the subsequent processing and NWB writing
-            tmpfile = tempfile.NamedTemporaryFile(dir='/stelmo/nwb/tmp')
+            tmpfile = tempfile.NamedTemporaryFile(dir=os.environ['SPIKE_SORTING_STORAGE_DIR'])
             recording = se.CacheRecordingExtractor(
                 recording, save_path=tmpfile.name, chunk_mb=1000, n_jobs=4)
             # write the extractor
-            le.extractors.H5RecordingExtractorV1.write_recording(recording, recording_extractor_h5_path)
+            sortingview.H5RecordingExtractorV1.write_recording(recording, recording_extractor_h5_path)
 
         # whiten the extractor for sorting and metric calculations
         print('\nWhitening recording...')
@@ -617,8 +616,6 @@ class SpikeSorting(dj.Computed):
         key['time_of_sort'] = int(time.time())
 
         with Timer(label='computing quality metrics', verbose=True):
-            # tmpfile = tempfile.NamedTemporaryFile(dir='/stelmo/nwb/tmp')
-            # metrics_recording = se.CacheRecordingExtractor(recording, save_path=tmpfile.name, chunk_mb=10000)
             metrics_key = (SpikeSortingParameters & key).fetch1(
                 'cluster_metrics_list_name')
             metric_info = (SpikeSortingMetrics & {
@@ -664,7 +661,7 @@ class SpikeSorting(dj.Computed):
         recording_label = key['nwb_file_name'] + '_' + \
             key['sort_interval_name'] + '_' + str(key['sort_group_id'])
         sorting_label = key['sorter_name'] + '_' + key['parameter_set_name']
-        
+
         recording_uri = kp.store_json({
             'recording_format': 'h5_v1',
             'data': {
@@ -842,7 +839,7 @@ class SpikeSorting(dj.Computed):
                                          end_frame=sort_indices[1])
 
         # Caching the extractor GREATLY speeds up the subsequent processing and NWB writing
-        tmpfile = tempfile.NamedTemporaryFile(dir='/stelmo/nwb/tmp')
+        tmpfile = tempfile.NamedTemporaryFile(dir=os.environ['SPIKE_SORTING_STORAGE_DIR'])
         sub_R = se.CacheRecordingExtractor(
             sub_R, save_path=tmpfile.name, chunk_mb=10000)
 
@@ -1118,7 +1115,7 @@ class CuratedSpikeSorting(dj.Computed):
         with Timer(label=f'Recomputing metrics', verbose=True):
             recording = workspace.get_recording_extractor(
                 workspace.recording_ids[0])
-            tmpfile = tempfile.NamedTemporaryFile(dir='/stelmo/nwb/tmp')
+            tmpfile = tempfile.NamedTemporaryFile(dir=os.environ['SPIKE_SORTING_STORAGE_DIR'])
             recording = se.CacheRecordingExtractor(
                 recording, save_path=tmpfile.name, chunk_mb=10000)
             metrics_key = (SpikeSortingParameters & key).fetch1(
