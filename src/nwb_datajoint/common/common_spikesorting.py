@@ -662,11 +662,11 @@ class SpikeSorting(dj.Computed):
             key['sort_interval_name'] + '_' + str(key['sort_group_id'])
         sorting_label = key['sorter_name'] + '_' + key['parameter_set_name']
 
-        recording_uri = kp.store_json({
+        recording_uri = kc.store_json({
             'recording_format': 'h5_v1',
             'data': {
                 'h5_uri': recording_extractor_h5_uri,
-            }
+            }s
         })
         
         le_sorting = sortingview.LabboxEphysSortingExtractor.store_sorting(sorting)
