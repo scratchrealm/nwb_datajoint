@@ -131,8 +131,8 @@ def insert_spike_sorting_preprocessing_parameters(yaml_file_name: Union[str, Non
         a = yaml.safe_dump({
             'preproc_params_name': 'default',
             'preproc_params': {
-                'freq_min': 300,
-                'freq_max': 6000,
+                'frequency_min': 300,
+                'frequency_max': 6000,
                 'margin_ms': 5,
                 'seed': 0
             }
@@ -151,6 +151,79 @@ def list_spike_sorting_preprocessing_parameters():
     a = ndc.SpikeSortingPreprocessingParameters & {}
     print(a)
 
+@click.command(help="Insert artifact detection parameters")
+@click.argument('yaml_file_name', required=False)
+def insert_artifact_detection_parameters(yaml_file_name: Union[str, None]):
+    if yaml_file_name is None:
+        print('You must specify a yaml file. Sample content:')
+        print('==========================================')
+        a = yaml.safe_dump({
+            'artifact_params_name': 'example',
+            'artifact_params': {
+                'zscore_thresh': None,
+                'amplitude_thresh': 3000,
+                'proportion_above_thresh': 1.0,
+                'removal_window_ms': 1.0,
+            }
+        }, sort_keys=False)
+        print(a)
+        return
+
+    import nwb_datajoint.common as ndc
+    with open(yaml_file_name, 'r') as f:
+        x = yaml.safe_load(f)
+    ndc.ArtifactDetectionParameters.insert1(x)
+
+@click.command(help="List artifact detection parameters.")
+def list_artifact_detection_parameters():
+    import nwb_datajoint.common as ndc
+    a = ndc.ArtifactDetectionParameters & {}
+    print(a)
+
+@click.command(help="Insert spike sorting recording selection")
+@click.argument('yaml_file_name', required=False)
+def insert_spike_sorting_recording_selection(yaml_file_name: Union[str, None]):
+    if yaml_file_name is None:
+        print('You must specify a yaml file. Sample content:')
+        print('==========================================')
+        a = yaml.safe_dump({
+            'nwb_file_name': 'FileName_.nwb',
+            'sort_group_id': 0,
+            'sort_interval_name': 'sort_interval_name',
+            'preproc_params_name': 'default',
+            'interval_list_name': 'interval_list_name',
+            'team_name': 'TeamName'
+        }, sort_keys=False)
+        print(a)
+        return
+
+    import nwb_datajoint.common as ndc
+    with open(yaml_file_name, 'r') as f:
+        x = yaml.safe_load(f)
+    ndc.SpikeSortingRecordingSelection.insert1(x)
+
+@click.command(help="List spike sorting recording selections for a session.")
+@click.argument('nwb_file_name')
+def list_spike_sorting_recording_selections(nwb_file_name):
+    import nwb_datajoint.common as ndc
+    a = ndc.SpikeSortingRecordingSelection & {'nwb_file_name': nwb_file_name}
+    print(a)
+
+@click.command(help="Populate spike sorting recording")
+@click.argument('yaml_file_name', required=True)
+def populate_spike_sorting_recording(yaml_file_name: str):
+    import nwb_datajoint.common as ndc
+    with open(yaml_file_name, 'r') as f:
+        x = yaml.safe_load(f)
+    ndc.SpikeSortingRecording.populate([(ndc.SpikeSortingRecordingSelection & x).proj()])
+
+@click.command(help="List spike sorting recordings for a session.")
+@click.argument('nwb_file_name')
+def list_spike_sorting_recordings(nwb_file_name):
+    import nwb_datajoint.common as ndc
+    a = ndc.SpikeSortingRecording & {'nwb_file_name': nwb_file_name}
+    print(a)
+
 cli.add_command(insert_session)
 cli.add_command(list_sessions)
 cli.add_command(insert_lab_team)
@@ -165,3 +238,9 @@ cli.add_command(list_interval_lists)
 cli.add_command(list_sort_intervals)
 cli.add_command(insert_spike_sorting_preprocessing_parameters)
 cli.add_command(list_spike_sorting_preprocessing_parameters)
+cli.add_command(insert_artifact_detection_parameters)
+cli.add_command(list_artifact_detection_parameters)
+cli.add_command(insert_spike_sorting_recording_selection)
+cli.add_command(list_spike_sorting_recording_selections)
+cli.add_command(populate_spike_sorting_recording)
+cli.add_command(list_spike_sorting_recordings)
