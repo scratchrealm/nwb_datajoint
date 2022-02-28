@@ -278,6 +278,7 @@ class SpikeSortingPreprocessingParameters(dj.Manual):
         key['preproc_params'] = {'frequency_min': freq_min,
                                  'frequency_max': freq_max,
                                  'margin_ms': margin_ms,
+                                 'whiten': True,
                                  'seed': seed}
         self.insert1(key, skip_duplicates=True)
         
@@ -288,9 +289,9 @@ class SpikeSortingRecordingSelection(dj.Manual):
     -> SortGroup
     -> SortInterval
     -> SpikeSortingPreprocessingParameters
+    -> LabTeam
     ---
     -> IntervalList
-    -> LabTeam
     """
 
 @schema
@@ -441,6 +442,7 @@ class SpikeSortingRecording(dj.Computed):
                                                      freq_max=filter_params['frequency_max'])
        
         return recording
+
 @schema
 class SpikeSorterParameters(dj.Manual):
     definition = """
@@ -466,7 +468,7 @@ class SpikeSortingSelection(dj.Manual):
     -> SpikeSorterParameters
     -> ArtifactRemovedIntervalList
     ---
-    import_path = '': varchar(200) # optional path to previous curated sorting output
+    import_path = "": varchar(200)  # optional path to previous curated sorting output
     """
 
 @schema
@@ -529,7 +531,8 @@ class SpikeSorting(dj.Computed):
         # recording = si.append_recordings(rec_list)
                 
         preproc_params = (SpikeSortingPreprocessingParameters & key).fetch1('preproc_params')
-        recording = st.preprocessing.whiten(recording=recording, seed=preproc_params['seed'])
+        if preproc_params['whiten']:
+            recording = st.preprocessing.whiten(recording=recording, seed=preproc_params['seed'])
         
         print(f'Running spike sorting on {key}...')
         sorter, sorter_params = (SpikeSorterParameters & key).fetch1('sorter','sorter_params')
@@ -564,7 +567,6 @@ class SpikeSorting(dj.Computed):
                           'sorting_id': key['sorting_id'],
                           'sorting_path': key['sorting_path'],
                           'parent_sorting_id': ''}, skip_duplicates=True)
-        
         self.insert1(key)
     
     def delete(self):
@@ -619,7 +621,6 @@ class SpikeSorting(dj.Computed):
     def _save_sorting_nwb(self, key, sorting, timestamps, sort_interval_list_name,
                           sort_interval, metrics=None, unit_ids=None):
         """Store a sorting in a new AnalysisNwbfile
-
         Parameters
         ----------
         key : dict
@@ -659,15 +660,15 @@ class SpikeSorting(dj.Computed):
             units_sort_interval[unit_id] = [sort_interval]
 
         analysis_file_name = AnalysisNwbfile().create(key['nwb_file_name'])
-        u = AnalysisNwbfile().add_units(analysis_file_name,
+        object_ids = AnalysisNwbfile().add_units(analysis_file_name,
                                         units, units_valid_times,
                                         units_sort_interval,
                                         metrics=metrics)
-        if u=='':
+        if object_ids=='':
             print('Sorting contains no units. Created an empty analysis nwb file anyway.')
             units_object_id = ''
         else:
-            units_object_id = u[0]
+            units_object_id = object_ids[0]
         return analysis_file_name,  units_object_id
     
     # TODO: write a function to import sortings done outside of dj
