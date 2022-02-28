@@ -47,6 +47,12 @@ spyglass list-sessions
 spyglass list-interval-lists RN2_20191110_.nwb # Note the trailing underscore here
 ```
 
+### Set up the sort groups
+
+Set up the electrode sort groups.
+
+See [set_sort_groups_by_shank.py](./set_sort_groups_by_shank.py) for an example.
+
 ### Insert a sort interval
 
 Create a sort interval (time interval) for spike sorting.
