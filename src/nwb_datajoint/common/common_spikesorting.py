@@ -298,7 +298,6 @@ class SpikeSortingRecordingSelection(dj.Manual):
 class SpikeSortingRecording(dj.Computed):
     definition = """
     -> SpikeSortingRecordingSelection
-    recording_id: varchar(15)
     ---
     recording_path: varchar(1000)
     -> IntervalList.proj(sort_interval_list_name='interval_list_name')
@@ -324,12 +323,10 @@ class SpikeSortingRecording(dj.Computed):
         if os.path.exists(key['recording_path']):
             shutil.rmtree(key['recording_path'])
         recording = recording.save(folder=key['recording_path'], n_jobs=4,
-                                   total_memory='5G')
-        
-        key['recording_id'] = 'R_'+str(uuid.uuid4())[:8]
-        
+                                   total_memory='5G')        
         self.insert1(key)
     
+    @staticmethod
     def _get_recording_name(self, key):
         recording_name = key['nwb_file_name'] + '_' \
         + key['sort_interval_name'] + '_' \
@@ -475,7 +472,6 @@ class SpikeSortingSelection(dj.Manual):
 class SpikeSorting(dj.Computed):
     definition = """
     -> SpikeSortingSelection
-    sorting_id: varchar(500)
     ---
     sorting_path: varchar(1000)
     time_of_sort: int   # in Unix time, to the nearest second
@@ -559,14 +555,13 @@ class SpikeSorting(dj.Computed):
                                                                                    sort_interval)
         AnalysisNwbfile().add(key['nwb_file_name'], key['analysis_file_name'])       
         
-        key['sorting_id'] = 'S_'+str(uuid.uuid4())[:8]
-
-        # add sorting to Sorting
-        Sortings.insert1({'nwb_file_name': key['nwb_file_name'],
-                          'recording_id': key['recording_id'],
-                          'sorting_id': key['sorting_id'],
-                          'sorting_path': key['sorting_path'],
-                          'parent_sorting_id': ''}, skip_duplicates=True)
+        sorting_key = (self & key).proj().fetch1()
+        sorting_key['sorting_id'] = 'S_'+str(uuid.uuid4())[:8]
+        sorting_key['sorting_path'] = key['sorting_path']
+        sorting_key['parent_sorting_id'] = ''
+        
+        # add sorting to SortingID
+        SortingID.insert1(sorting_key, skip_duplicates=True)
         self.insert1(key)
     
     def delete(self):
@@ -611,7 +606,7 @@ class SpikeSorting(dj.Computed):
                 shutil.rmtree(str(pathlib.Path(os.environ['NWB_DATAJOINT_SORTING_DIR']) / dir))
                 
     def _get_sorting_name(self, key):
-        recording_name = SpikeSortingRecording()._get_recording_name(key)
+        recording_name = SpikeSortingRecording._get_recording_name(key)
         sorting_name = recording_name + '_' \
                        + key['sorter'] + '_' \
                        + key['sorter_params_name'] + '_' \
@@ -676,13 +671,12 @@ class SpikeSorting(dj.Computed):
         raise NotImplementedError
                 
 @schema
-class Sortings(dj.Manual):
+class SortingID(dj.Manual):
     definition = """
     # Has records for every sorting; similar to IntervalList
-    -> Session
-    recording_id: varchar(15)
-    sorting_id: varchar(15)
+    sorting_id: varchar(10)
     ---
+    -> SpikeSorting
     sorting_path: varchar(1000)
-    parent_sorting_id='': varchar(15)
+    parent_sorting_id='': varchar(10)
     """ 
